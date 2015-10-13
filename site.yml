@@ -1,0 +1,11 @@
+# order matters!
+---
+- hosts: mysql_replicated
+#  remote_user: "{{ remote_user_name }}"
+  sudo: True
+  roles:
+    - mysql-replicated
+
+
+
+

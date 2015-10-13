@@ -1,0 +1,6 @@
+---
+
+## MySQL passwords
+mysql_root_password: password
+mysql_replicated_user_password: password
+

@@ -1,0 +1,31 @@
+---
+## taken from various places
+
+- name: secure | Stop here if mysql_root_password variable is not set
+  fail: msg="Set the mysql root password to be used, set the mysql_root_password variable!"
+  when: mysql_root_password is not defined
+
+# There are 4 root accounts after the initial installation
+- name: secure | Set mysql root password for localhost root account
+  mysql_user: name=root host=localhost password={{mysql_root_password}}
+
+- name: secure | write /root/.my.cnf file with root password credentials
+  template: src=root.my.cnf.j2 dest=/root/.my.cnf owner=root mode=0600
+
+- name: secure | update mysql root password for all other root accounts
+  mysql_user: name=root host={{item}} password={{mysql_root_password}}
+  with_items:
+    - 127.0.0.1
+    - ::1
+    - '{{ ansible_hostname }}'
+  ignore_errors: true
+
+- name: secure | ensure anonymous users are not in the database
+  mysql_user: name='' host={{item}} state=absent
+  with_items:
+    - localhost
+    - '{{ansible_hostname}}'
+    - '{{ansible_fqdn}}'
+
+- name: secure | remove the test database
+  mysql_db: name=test state=absent

@@ -1,0 +1,106 @@
+---
+# we do NOT want this playbook to run twice.
+# It is only for running on fresh servers. Once installed it wont touch anything again
+
+#
+# Deploy mysql
+#
+
+- name: stop if mysql_replicated_server_id is not defined
+  fail: msg="Error. mysql_replicated_server_id is not defined"
+  when: mysql_replicated_server_id is not defined
+
+- name: register previous mysql configuration
+  stat: path=/etc/mysql/my.cnf
+  register: previous_my_cnf
+
+- name: install mysql server and client
+  apt: pkg={{item}} state=present update-cache=yes cache_valid_time=3600
+  with_items:
+    - mysql-server
+    - mysql-client
+    - libmysqlclient-dev
+    - python-mysqldb
+  notify:
+    - restart mysql
+
+- name: start and enable mysqld server
+  service: name=mysql state=started enabled=yes
+
+- name: configure mysql
+  template: src=my.cnf.j2 dest=/etc/mysql/my.cnf backup=yes
+  notify:
+    - restart mysql
+  when: not previous_my_cnf.stat.exists
+
+- include: secure.yml
+
+# start of replicated setup
+# Will only run if no replication is setup on any of the servers.
+
+- name: check if replication is already setup on server 1
+  shell: 'mysql -u root --password={{mysql_root_password}} -e "show slave status;" | wc -l'
+  delegate_to: "{{ groups.mysql_replicated[1] }}"
+  run_once: yes
+  ignore_errors: yes
+  register: check_result
+
+- name: check if replication is already setup on server 2
+  shell: 'mysql -u root --password={{mysql_root_password}} -e "show slave status;" | wc -l'
+  delegate_to: "{{ groups.mysql_replicated[0] }}"
+  ignore_errors: yes
+  register: check_partner_result
+
+# configure backendserver
+- name: configure mysql (replica_id={{mysql_replicated_server_id}})
+  template: src=my.cnf.rep.j2 dest=/etc/mysql/my.cnf
+  notify: reload mysql
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+  
+# force restart of mysql service 
+- name: restart mysql
+  service: name=mysql state=restarted 
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+   
+# create replication slave user on backend servers 
+- name: create SQL replication slave user and grant access for server1
+  command: mysql -u root --password={{ mysql_root_password }} -e  "GRANT REPLICATION SLAVE ON *.* TO 'slave_user'@'{{ item }}' IDENTIFIED BY '{{ mysql_replicated_user_password }}'";   
+  with_items: hostvars[groups.mysql_replicated[1]].ansible_all_ipv4_addresses
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+  delegate_to: "{{ groups.mysql_replicated[0] }}"
+
+- name: create SQL replication slave user and grant access for server2
+  command: mysql -u root --password={{ mysql_root_password }} -e  "GRANT REPLICATION SLAVE ON *.* TO 'slave_user'@'{{ item }}' IDENTIFIED BY '{{ mysql_replicated_user_password }}'";   
+  with_items: hostvars[groups.mysql_replicated[0]].ansible_all_ipv4_addresses
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+  delegate_to: "{{ groups.mysql_replicated[1] }}"
+
+# reset master state on backend servers
+- name: reset master
+  command: mysql -u root --password={{ mysql_root_password }} -e  "RESET MASTER;"
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+
+# stop slave replication on backend servers (to change configuration)
+- name: stop slave
+  mysql_replication: mode=stopslave login_user=root login_password={{ mysql_root_password }}
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+
+# Configure Slave replication on backend server1  
+- name: Connect sql1 Slave to Master
+  command: mysql -u root --password={{ mysql_root_password }} -e  "CHANGE MASTER TO MASTER_HOST = '{{ groups.mysql_replicated[1] }}', MASTER_USER = 'slave_user', MASTER_PASSWORD = '{{ mysql_replicated_user_password }}', MASTER_LOG_FILE = 'mysql-bin.000001', MASTER_LOG_POS = 107; "
+  when: check_result1.stdout == "0" and check_result2.stdout == "0"
+  delegate_to: "{{ groups.mysql_replicated[0] }}"
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+  
+# Configure Slave replication on backend server2  
+- name: Connect sql2 Slave to Master
+  command: mysql -u root --password={{ mysql_root_password }} -e  "CHANGE MASTER TO MASTER_HOST = '{{ groups.mysql_replicated[0] }}', MASTER_USER = 'slave_user', MASTER_PASSWORD = '{{ mysql_replicated_user_password }}', MASTER_LOG_FILE = 'mysql-bin.000001', MASTER_LOG_POS = 107; "
+  when: check_result1.stdout == "0" and check_result2.stdout == "0"
+  delegate_to: "{{ groups.mysql_replicated[1] }}"
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+
+# start slave replication  
+- name: start Slave
+  mysql_replication: mode=startslave login_user=root login_password={{ mysql_root_password }}
+  when: check_result.stdout == "0" and check_partner_result.stdout == "0"
+

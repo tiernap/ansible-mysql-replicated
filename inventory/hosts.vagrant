@@ -1,0 +1,4 @@
+
+[mysql_replicated]
+mysql1.internal.tld mysql_replicated_server_id=1
+mysql2.internal.tld mysql_replicated_server_id=2

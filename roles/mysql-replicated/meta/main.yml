@@ -1,0 +1,6 @@
+---
+# dependencies are launched before running the tasks, so it is not possible
+# to do any check to avoid running them.
+# Do not depend on mysql here.
+#dependencies:
+#  - { role: mysql }
