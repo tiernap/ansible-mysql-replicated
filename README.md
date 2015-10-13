@@ -13,11 +13,11 @@ Vagrant uses "hostmanager" plugin. Before running, install with: vagrant plugin 
 
 Mysql service available at:
 
-mysql1.internal.tld:3306
+`mysql1.internal.tld:3306`
 
 and
 
-mysql2.internal.tld:3306
+`mysql2.internal.tld:3306`
 
 username: root pass: password
 
