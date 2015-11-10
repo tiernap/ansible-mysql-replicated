@@ -33,6 +33,7 @@
     - restart mysql
   when: not previous_my_cnf.stat.exists
 
+# secure mysql installation
 - include: secure.yml
 
 # start of replicated setup
@@ -54,7 +55,7 @@
 # configure backendserver
 - name: configure mysql (replica_id={{mysql_replicated_server_id}})
   template: src=my.cnf.rep.j2 dest=/etc/mysql/my.cnf
-  notify: reload mysql
+  notify: restart mysql
   when: check_result.stdout == "0" and check_partner_result.stdout == "0"
   
 # force restart of mysql service 
